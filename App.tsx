@@ -250,7 +250,7 @@ export default function App() {
       <ToastContainer />
       
       {/* 桌面端侧边栏 / 移动端底部导航 */}
-      <nav className="fixed bottom-0 left-0 right-0 h-16 md:h-full md:w-20 md:static bg-cyber-800/90 backdrop-blur-md border-t md:border-t-0 md:border-r border-cyber-700 flex md:flex-col justify-around md:justify-start md:pt-10 items-center z-[100]">
+      <nav className="fixed bottom-0 left-0 right-0 h-16 md:h-full md:w-20 md:static bg-cyber-800/90 backdrop-blur-md border-t md:border-t-0 md:border-r border-cyber-700 flex md:flex-col justify-between md:justify-start md:pt-10 items-center z-[100] px-2 md:px-0">
           {/* 桌面端 Logo 占位 */}
           <div className="hidden md:flex flex-col items-center mb-10">
               <span className="text-cyber-accent font-black text-xs italic tracking-tighter">霓虹</span>
@@ -268,9 +268,7 @@ export default function App() {
           <NavButton active={currentView === 'profile'} onClick={() => setCurrentView('profile')} icon={<Icons.User />} label="档案" />
           
           {(user.isAdmin || user.accountName === 'admin') && (
-            <div className="hidden md:block mt-auto pb-6">
-                <NavButton active={currentView === 'admin'} onClick={() => setCurrentView('admin')} icon={<Icons.Admin />} label="管理" />
-            </div>
+            <NavButton active={currentView === 'admin'} onClick={() => setCurrentView('admin')} icon={<Icons.Admin />} label="管理" />
           )}
       </nav>
 
@@ -334,12 +332,12 @@ export default function App() {
 }
 
 const NavButton = ({ active, onClick, icon, label, badge }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string, badge?: number }) => (
-    <button onClick={onClick} className={`relative flex flex-col items-center justify-center gap-1.5 w-full md:h-16 md:w-full transition-all ${active ? 'text-cyber-accent' : 'text-gray-500 hover:text-gray-300'}`}>
+    <button onClick={onClick} className={`relative flex flex-col items-center justify-center gap-1 w-full md:gap-1.5 md:h-16 md:w-full transition-all ${active ? 'text-cyber-accent' : 'text-gray-500 hover:text-gray-300'}`}>
         <div className={`transition-all duration-300 ${active ? 'scale-110 drop-shadow-[0_0_8px_rgba(0,240,255,0.5)]' : ''}`}>
             {icon}
             {badge && badge > 0 ? <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-cyber-danger text-[9px] font-bold text-white shadow-[0_0_8px_rgba(255,42,109,0.5)] animate-pulse">{badge > 9 ? '9+' : badge}</span> : null}
         </div>
-        <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-tighter ${active ? 'opacity-100' : 'opacity-60'}`}>{label}</span>
+        <span className={`text-[8px] md:text-[10px] font-bold uppercase tracking-tighter ${active ? 'opacity-100' : 'opacity-60'}`}>{label}</span>
         {active && <div className="absolute bottom-0 md:left-0 md:top-0 md:bottom-0 md:w-1 w-full h-1 md:h-full bg-cyber-accent shadow-[0_0_15px_#00f0ff]"></div>}
     </button>
 );

@@ -34,8 +34,19 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
   const [isStallListOpen, setIsStallListOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [terminalPos, setTerminalPos] = useState({ x: 20, y: 150 });
-  const [terminalSize, setTerminalSize] = useState({ w: 320, h: 260 });
+  
+  // 优化后的初始位置：靠左
+  const [terminalPos, setTerminalPos] = useState({ 
+    x: window.innerWidth < 768 ? 10 : 20, 
+    y: window.innerWidth < 768 ? 100 : 150 
+  });
+  
+  // 优化后的初始大小：手机端更窄更高，适应垂直操作
+  const [terminalSize, setTerminalSize] = useState({ 
+    w: window.innerWidth < 768 ? Math.min(window.innerWidth - 20, 300) : 320, 
+    h: window.innerWidth < 768 ? 320 : 260 
+  });
+
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -130,40 +141,64 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
       toast.info("摊位已下线");
   };
 
-  // 拖拽缩放逻辑
-  const startDragging = (e: React.MouseEvent) => {
-    if (isMobile) return;
-    e.preventDefault();
+  // 改进拖拽逻辑：支持鼠标和触摸
+  const startDragging = (e: React.MouseEvent | React.TouchEvent) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
     setIsDragging(true);
-    dragStart.current = { x: e.clientX - terminalPos.x, y: e.clientY - terminalPos.y };
+    dragStart.current = { x: clientX - terminalPos.x, y: clientY - terminalPos.y };
   };
 
-  const startResizing = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const startResizing = (e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
     setIsResizing(true);
-    dragStart.current = { x: e.clientX, y: e.clientY };
+    dragStart.current = { x: clientX, y: clientY };
   };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (isDragging) setTerminalPos({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
-    if (isResizing) {
-      const dx = e.clientX - dragStart.current.x;
-      const dy = e.clientY - dragStart.current.y;
-      setTerminalSize(prev => ({ w: Math.max(240, prev.w + dx), h: Math.max(200, prev.h + dy) }));
-      dragStart.current = { x: e.clientX, y: e.clientY };
-    }
-  }, [isDragging, isResizing]);
+  const handleMove = useCallback((e: MouseEvent | TouchEvent) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-  const handleMouseUp = useCallback(() => { setIsDragging(false); setIsResizing(false); }, []);
+    if (isDragging) {
+      setTerminalPos({ 
+        x: Math.max(0, Math.min(window.innerWidth - 40, clientX - dragStart.current.x)), 
+        y: Math.max(0, Math.min(window.innerHeight - 80, clientY - dragStart.current.y)) 
+      });
+    }
+    if (isResizing) {
+      const dx = clientX - dragStart.current.x;
+      const dy = clientY - dragStart.current.y;
+      setTerminalSize(prev => ({ 
+        w: Math.max(isMobile ? 180 : 240, Math.min(window.innerWidth - terminalPos.x - 10, prev.w + dx)), 
+        h: Math.max(150, Math.min(window.innerHeight - terminalPos.y - 10, prev.h + dy)) 
+      }));
+      dragStart.current = { x: clientX, y: clientY };
+    }
+  }, [isDragging, isResizing, terminalPos, isMobile]);
+
+  const handleEnd = useCallback(() => { 
+    setIsDragging(false); 
+    setIsResizing(false); 
+  }, []);
 
   useEffect(() => {
     if (isDragging || isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleEnd);
+      window.addEventListener('touchmove', handleMove, { passive: false });
+      window.addEventListener('touchend', handleEnd);
     }
-    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-  }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+    return () => { 
+      window.removeEventListener('mousemove', handleMove); 
+      window.removeEventListener('mouseup', handleEnd); 
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [isDragging, isResizing, handleMove, handleEnd]);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-cyber-900 overflow-hidden relative select-none">
@@ -209,7 +244,7 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
             </div>
         </div>
 
-        {/* 摊位名录弹出层 (Stall List Sidebar/Modal) */}
+        {/* 摊位名录弹出层 */}
         {isStallListOpen && (
             <div className={`absolute z-50 flex flex-col bg-cyber-800/95 backdrop-blur-xl border border-cyber-accent/30 shadow-2xl transition-all duration-300 animate-fade-in-right ${isMobile ? 'inset-0 top-[84px] rounded-t-3xl' : 'right-4 top-24 bottom-24 w-80 rounded-2xl'}`}>
                 <div className="p-4 border-b border-cyber-accent/20 flex justify-between items-center">
@@ -246,9 +281,6 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                             </div>
                         ))
                     )}
-                </div>
-                <div className="p-4 border-t border-cyber-accent/10 bg-black/20 text-center">
-                    <p className="text-[9px] text-gray-500 uppercase tracking-widest font-mono">Current Channel Active Stalls: {channelPosts.length}</p>
                 </div>
             </div>
         )}
@@ -352,20 +384,30 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
             </div>
         </div>
 
-        {/* Terminal Window */}
+        {/* Terminal Window - 优化手机端拖拽与初始位置 */}
         {isTerminalOpen && (
             <div 
-              className={`fixed md:absolute z-50 bg-black/90 border border-cyber-accent/30 flex flex-col backdrop-blur-xl shadow-2xl transition-all overflow-hidden ${isMobile ? 'inset-x-0 bottom-0 top-1/2 rounded-t-3xl' : 'rounded-2xl'}`}
-              style={!isMobile ? { left: `${terminalPos.x}px`, top: `${terminalPos.y}px`, width: `${terminalSize.w}px`, height: `${terminalSize.h}px` } : {}}
+              className={`fixed z-50 bg-black/90 border border-cyber-accent/30 flex flex-col backdrop-blur-xl shadow-2xl transition-all overflow-hidden rounded-2xl`}
+              style={{ 
+                left: `${terminalPos.x}px`, 
+                top: `${terminalPos.y}px`, 
+                width: `${terminalSize.w}px`, 
+                height: `${terminalSize.h}px`,
+                touchAction: 'none' // 防止触摸滚动干扰拖拽
+              }}
             >
-                 {/* Terminal Header */}
-                 <div className="p-3 border-b border-cyber-accent/20 bg-cyber-accent/5 flex justify-between items-center cursor-move" onMouseDown={startDragging}>
-                     <div className="flex items-center gap-2">
+                 {/* Terminal Header - 拖拽区域，增加触摸支持 */}
+                 <div 
+                    className="p-3 border-b border-cyber-accent/20 bg-cyber-accent/5 flex justify-between items-center cursor-move select-none" 
+                    onMouseDown={startDragging}
+                    onTouchStart={startDragging}
+                 >
+                     <div className="flex items-center gap-2 pointer-events-none">
                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                          <span className="text-[10px] text-cyber-accent font-black uppercase tracking-[0.2em] font-mono">Terminal Feed</span>
                      </div>
                      <div className="flex gap-2">
-                         <button onClick={() => setIsTerminalOpen(false)} className="text-gray-500 hover:text-white transition-colors">
+                         <button onClick={() => setIsTerminalOpen(false)} className="text-gray-500 hover:text-white transition-colors p-1">
                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                          </button>
                      </div>
@@ -380,7 +422,7 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                                 <span className="font-black text-gray-300 uppercase">{m.senderName}:</span>
                             </div>
                             <div className="mt-1 ml-4 pl-3 border-l-2 border-cyber-700/50 group-hover:border-cyber-accent transition-colors">
-                                {m.imageContent && <img src={m.imageContent} className="max-w-[180px] rounded-lg border border-cyber-accent/30 mb-2 shadow-xl hover:scale-105 transition-transform" />}
+                                {m.imageContent && <img src={m.imageContent} className="max-w-[150px] rounded-lg border border-cyber-accent/30 mb-2 shadow-xl" />}
                                 <span className="text-gray-100 break-words">{m.text}</span>
                             </div>
                         </div>
@@ -394,15 +436,18 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         <input type="file" accept="image/*" className="hidden" ref={terminalFileInputRef} onChange={handleTerminalImageUpload} />
                     </button>
-                    <input type="text" className="flex-1 bg-cyber-900/50 border border-cyber-700 rounded-full px-4 py-2 text-[10px] text-white focus:border-cyber-accent outline-none font-mono" placeholder="Input command..." value={chatInput} onChange={e => setChatInput(e.target.value)} />
-                    <button className="text-cyber-accent hover:scale-110 active:scale-95 transition-all"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg></button>
+                    <input type="text" className="flex-1 bg-cyber-900/50 border border-cyber-700 rounded-full px-4 py-2 text-[10px] text-white focus:border-cyber-accent outline-none font-mono" placeholder="Input..." value={chatInput} onChange={e => setChatInput(e.target.value)} />
+                    <button className="text-cyber-accent hover:scale-110 active:scale-95 transition-all p-1"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" /></svg></button>
                  </form>
                  
-                 {!isMobile && (
-                     <div className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize flex items-end justify-end p-1.5 group" onMouseDown={startResizing}>
-                         <div className="w-2 h-2 border-r-2 border-b-2 border-cyber-accent/30 group-hover:border-cyber-accent transition-colors"></div>
-                     </div>
-                 )}
+                 {/* Resize Handle - 增加触摸支持 */}
+                 <div 
+                    className="absolute bottom-0 right-0 w-8 h-8 cursor-nwse-resize flex items-end justify-end p-2 group" 
+                    onMouseDown={startResizing}
+                    onTouchStart={startResizing}
+                 >
+                     <div className="w-3 h-3 border-r-2 border-b-2 border-cyber-accent/30 group-hover:border-cyber-accent transition-colors"></div>
+                 </div>
             </div>
         )}
 
@@ -414,7 +459,7 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                         <span className="w-2 h-5 bg-cyber-danger"></span>
                         警告 (Warning)
                     </h3>
-                    <p className="text-xs text-gray-400 mb-6 leading-relaxed">确定要关闭此摊位的频率连接吗？此操作不可撤销。</p>
+                    <p className="text-xs text-gray-400 mb-6 leading-relaxed">确定要关闭此摊位的频率连接吗？</p>
                     <div className="flex gap-3">
                         <Button size="sm" variant="ghost" className="flex-1" onClick={() => setShowConfirmDelete(null)}>取消</Button>
                         <Button size="sm" variant="danger" className="flex-1" onClick={handleExecuteDelete}>确认撤回</Button>
