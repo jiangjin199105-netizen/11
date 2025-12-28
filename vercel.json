@@ -1,0 +1,10 @@
+
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/((?!assets/|static/|favicon.ico|manifest.json).* )",
+      "destination": "/index.html"
+    }
+  ]
+}
