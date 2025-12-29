@@ -40,7 +40,8 @@ const UserRow: React.FC<{ user: User; onReload: () => void }> = ({ user, onReloa
                 toast.success("密码已强制重置");
                 setNewPassword('');
             } else {
-                toast.error(res.error || "重置失败");
+                // Fix: mockDb.updateUserProfile return type does not include an 'error' field
+                toast.error("重置失败");
             }
         } catch (e) { toast.error("系统错误"); }
         setIsProcessing(false);

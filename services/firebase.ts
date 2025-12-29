@@ -15,7 +15,7 @@ let db: any = null;
 let auth: any = null;
 let isFirebaseConfigured = false;
 
-if (typeof firebase !== 'undefined') {
+if (typeof firebase !== 'undefined' && firebase.apps) {
     try {
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
@@ -26,15 +26,15 @@ if (typeof firebase !== 'undefined') {
         
         // 尝试启用离线持久化
         db.enablePersistence({ synchronizeTabs: true }).catch((err: any) => {
-            console.warn("Firebase Persistence Error:", err.code);
+            console.warn("Firebase Persistence Info:", err.code);
         });
 
         isFirebaseConfigured = true;
     } catch (e) {
-        console.warn("Firebase Init Exception:", e);
+        console.warn("Firebase Init Shielded:", e);
     }
 } else {
-    console.warn("Firebase SDK is not loaded from CDN.");
+    console.warn("Firebase SDK Not Ready (Standalone Mode Active)");
 }
 
 export { db, auth, isFirebaseConfigured, firebase };

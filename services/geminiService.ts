@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Item, User } from "../types";
 
-// Fix: Initialized with process.env.API_KEY directly as required by coding guidelines
+// Fix: Updated to follow GenAI SDK guidelines for initialization using process.env.API_KEY directly.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 /**
@@ -17,11 +17,6 @@ export const negotiateTrade = async (
   conversationHistory: string[]
 ): Promise<{ text: string; newPrice?: number; dealAccepted?: boolean }> => {
   
-  if (!process.env.API_KEY) {
-      return { text: "系统错误：神经连接断开 (缺少 API Key)。", dealAccepted: false };
-  }
-
-  // Fix: Switched to gemini-3-flash-preview for Basic Text Tasks
   const model = "gemini-3-flash-preview"; 
 
   const inventoryList = playerInventory.map(i => i.name).join(', ');
@@ -66,7 +61,7 @@ export const negotiateTrade = async (
       }
     });
 
-    // Fix: Access response.text directly (it is a property)
+    // Fix: Using response.text property instead of method.
     const result = JSON.parse(response.text || '{}');
     return {
         text: result.text || "...",
@@ -81,15 +76,12 @@ export const negotiateTrade = async (
 };
 
 export const generateChannelDescription = async (channelName: string): Promise<string> => {
-    if (!process.env.API_KEY) return "数字虚空中的一个神秘频道。";
-
     try {
         const response = await ai.models.generateContent({
-            // Fix: Switched to gemini-3-flash-preview
             model: "gemini-3-flash-preview",
             contents: `为名为 "${channelName}" 的聊天频道 generate 一个简短、酷炫、赛博朋克风格的一句话描述（中文）。`,
         });
-        // Fix: Access response.text directly (it is a property)
+        // Fix: Using response.text property.
         return response.text.trim();
     } catch (e) {
         return "连接已建立。";

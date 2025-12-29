@@ -20,6 +20,9 @@ export const FriendsInterface: React.FC<FriendsInterfaceProps> = ({ currentUser,
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('');
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [nicknameInput, setNicknameInput] = useState('');
+
   const [searchAccountName, setSearchAccountName] = useState('');
   const [searchResult, setSearchResult] = useState<{found: boolean, msg: string, user?: User} | null>(null);
 
@@ -76,9 +79,31 @@ export const FriendsInterface: React.FC<FriendsInterfaceProps> = ({ currentUser,
       setLoading(false);
   };
 
+  const handleStartEditNickname = (e: React.MouseEvent, friend: User) => {
+      e.stopPropagation();
+      setEditingId(friend.id);
+      setNicknameInput(currentUser.friendNicknames?.[friend.id] || '');
+  };
+
+  const handleSaveNickname = async () => {
+      if (!editingId) return;
+      const updatedNicknames = { ... (currentUser.friendNicknames || {}) };
+      if (nicknameInput.trim()) {
+          updatedNicknames[editingId] = nicknameInput.trim();
+      } else {
+          delete updatedNicknames[editingId];
+      }
+      
+      const updatedUser = { ...currentUser, friendNicknames: updatedNicknames };
+      onUpdateCurrentUser(updatedUser);
+      setEditingId(null);
+      toast.success("昵称已同步");
+  };
+
   const filteredFriends = friends.filter(f => {
-      const name = currentUser.friendNicknames?.[f.id] || f.username;
-      return name.toLowerCase().includes(filter.toLowerCase()) || f.accountName.toLowerCase().includes(filter.toLowerCase());
+      const nickname = currentUser.friendNicknames?.[f.id];
+      const nameToSearch = nickname ? `${nickname} ${f.username}` : f.username;
+      return nameToSearch.toLowerCase().includes(filter.toLowerCase()) || f.accountName.toLowerCase().includes(filter.toLowerCase());
   });
 
   return (
@@ -106,7 +131,7 @@ export const FriendsInterface: React.FC<FriendsInterfaceProps> = ({ currentUser,
                     <div className="mb-4">
                         <input 
                             className="w-full bg-cyber-800 border border-cyber-600 rounded p-3 text-white focus:border-cyber-accent outline-none"
-                            placeholder="搜索好友..."
+                            placeholder="搜索好友或昵称..."
                             value={filter}
                             onChange={e => setFilter(e.target.value)}
                         />
@@ -115,25 +140,53 @@ export const FriendsInterface: React.FC<FriendsInterfaceProps> = ({ currentUser,
                         <div className="text-center text-gray-500 mt-10">列表为空。</div>
                     ) : (
                         <div className="grid gap-3">
-                            {filteredFriends.map(friend => (
-                                <div key={friend.id} className="bg-cyber-800 border border-cyber-700 rounded p-4 flex items-center justify-between animate-fade-in">
-                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => onOpenProfile(friend)}>
-                                        <div className="relative">
-                                            <img src={friend.avatar} className="w-12 h-12 rounded bg-black" alt="" />
-                                            {friend.isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-cyber-800"></div>}
+                            {filteredFriends.map(friend => {
+                                const nickname = currentUser.friendNicknames?.[friend.id];
+                                return (
+                                    <div key={friend.id} className="bg-cyber-800 border border-cyber-700 rounded p-4 flex items-center justify-between animate-fade-in group relative overflow-hidden">
+                                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                                            <div className="relative cursor-pointer shrink-0" onClick={() => onOpenProfile(friend)}>
+                                                <img src={friend.avatar} className="w-12 h-12 rounded bg-black border border-cyber-700" alt="" />
+                                                {friend.isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-cyber-800"></div>}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                {editingId === friend.id ? (
+                                                    <div className="flex items-center gap-2 animate-fade-in">
+                                                        <input 
+                                                            autoFocus
+                                                            className="bg-cyber-900 border border-cyber-accent rounded px-2 py-1 text-white text-sm outline-none w-32 md:w-48"
+                                                            value={nicknameInput}
+                                                            onChange={e => setNicknameInput(e.target.value)}
+                                                            onKeyDown={e => e.key === 'Enter' && handleSaveNickname()}
+                                                            onBlur={() => setEditingId(null)}
+                                                        />
+                                                        <button onMouseDown={handleSaveNickname} className="text-cyber-success text-xs font-bold uppercase">保存</button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="cursor-pointer group/name" onClick={(e) => handleStartEditNickname(e, friend)}>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="font-bold text-white text-lg truncate">
+                                                                {nickname || friend.username}
+                                                                {nickname && <span className="text-[10px] text-gray-500 ml-2 font-normal">({friend.username})</span>}
+                                                            </div>
+                                                            <svg className="w-3 h-3 text-gray-600 opacity-0 group-hover/name:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                        </div>
+                                                        <div className="text-xs text-cyber-accent font-mono">@{friend.accountName}</div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div className="font-bold text-white text-lg">{friend.username}</div>
-                                            <div className="text-xs text-cyber-accent font-mono">@{friend.accountName}</div>
+                                        <div className="flex gap-2 ml-4">
+                                            <Button size="sm" variant="ghost" className="border border-cyber-600 hidden sm:flex" onClick={() => onOpenChat(friend.id)}>
+                                                私信
+                                            </Button>
+                                            <Button size="sm" variant="secondary" className="sm:hidden" onClick={() => onOpenChat(friend.id)}>
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                                            </Button>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <Button size="sm" variant="ghost" className="border border-cyber-600" onClick={() => onOpenChat(friend.id)}>
-                                            私信
-                                        </Button>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
