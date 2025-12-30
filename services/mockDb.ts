@@ -4,6 +4,7 @@ import { db, auth, isFirebaseConfigured, firebase } from './firebase';
 import { toast } from './toastService';
 
 const LOCAL_STORAGE_KEY = 'neon_bazaar_v8_storage';
+const KEFU_ID = 'system_kefu_001';
 
 const INITIAL_ITEMS: Item[] = [
   { id: 'i1', name: '量子芯片', rarity: 'common', value: 50, description: '基础处理单元。' },
@@ -17,19 +18,52 @@ const TITLES = ['街头小贩', '黑市中间人', '数据大亨', '暗影行者
 
 class HybridDBService {
   private isLocalOnly = !isFirebaseConfigured;
-  private memoryCache: any = null; // 用于存储不可用时的回退
+  private memoryCache: any = null;
 
   constructor() {
     this.initLocalData();
   }
 
+  private sanitizeForFirebase(obj: any) {
+    const cleaned = { ...obj };
+    Object.keys(cleaned).forEach(key => {
+      if (cleaned[key] === undefined) {
+        delete cleaned[key];
+      }
+    });
+    return cleaned;
+  }
+
   private initLocalData() {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (!raw || raw === '{}') {
-        const initial = { users: {}, messages: {}, conversations: {}, posts: {}, channels: {}, moments: [] };
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initial));
+      let data: any = { users: {}, messages: {}, conversations: {}, posts: {}, channels: {}, moments: [] };
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          data = { ...data, ...parsed };
+        } catch (e) {
+          console.error("Storage corrupt, resetting...");
+        }
       }
+      
+      data.users = data.users || {};
+      data.messages = data.messages || {};
+      data.conversations = data.conversations || {};
+      data.posts = data.posts || {};
+      data.channels = data.channels || {};
+      data.moments = data.moments || [];
+
+      // 初始化客服账号
+      if (!data.users[KEFU_ID]) {
+          data.users[KEFU_ID] = this.createNewUserObject(KEFU_ID, 'kefu001', '霓虹官方客服', 'system_protected_pass', 'https://api.dicebear.com/7.x/bottts/svg?seed=kefu001');
+          data.users[KEFU_ID].isGuaranteed = true;
+          data.users[KEFU_ID].bio = '为您提供全天候神经链路维护与交易仲裁服务。';
+          data.users[KEFU_ID].merchantStats.title = '系统管理员';
+      }
+      
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+      this.memoryCache = data;
     } catch (e) {
       console.warn("LocalStorage Locked - Fallback to Memory Mode");
       this.memoryCache = { users: {}, messages: {}, conversations: {}, posts: {}, channels: {}, moments: [] };
@@ -40,7 +74,15 @@ class HybridDBService {
     if (this.memoryCache) return this.memoryCache;
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : { users: {}, messages: {}, conversations: {} };
+      const data = raw ? JSON.parse(raw) : {};
+      return {
+        users: data.users || {},
+        messages: data.messages || {},
+        conversations: data.conversations || {},
+        posts: data.posts || {},
+        channels: data.channels || {},
+        moments: data.moments || []
+      };
     } catch (e) {
       return { users: {}, messages: {}, conversations: {}, posts: {}, channels: {}, moments: [] };
     }
@@ -51,20 +93,13 @@ class HybridDBService {
     if (!all[collection]) all[collection] = {};
     all[collection][id] = data;
 
-    if (this.memoryCache) {
-        this.memoryCache = all;
-        return;
-    }
-
+    this.memoryCache = all;
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all));
     } catch (e) {
       if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-          console.warn("Storage Full - Purging message logs");
           all.messages = {}; 
-          try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all)); } catch(ie) { this.memoryCache = all; }
-      } else {
-          this.memoryCache = all;
+          try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all)); } catch(ie) {}
       }
     }
   }
@@ -74,12 +109,17 @@ class HybridDBService {
   }
 
   async login(accountName: string, password: string): Promise<{user?: User, error?: string}> {
-    const lowerName = accountName.toLowerCase();
+    const lowerName = accountName.trim().toLowerCase();
     const localData = this.getLocalData();
-    const localMatch = (Object.values(localData.users || {}) as User[]).find(u => u.accountName.toLowerCase() === lowerName);
+    const usersArray = Object.values(localData.users) as User[];
+    
+    const user = usersArray.find(u => 
+      (u.accountName && u.accountName.toLowerCase() === lowerName) || 
+      (u.username && u.username.toLowerCase() === lowerName)
+    );
 
-    if (localMatch && localMatch.password === password) {
-        return { user: localMatch };
+    if (user && user.password === password) {
+        return { user };
     }
 
     try {
@@ -105,9 +145,9 @@ class HybridDBService {
   }
 
   async register(accountName: string, username: string, password?: string): Promise<{user?: User, error?: string}> {
-    const lowerName = accountName.toLowerCase();
+    const lowerName = accountName.trim().toLowerCase();
     const localData = this.getLocalData();
-    const existing = (Object.values(localData.users || {}) as User[]).find(u => u.accountName.toLowerCase() === lowerName);
+    const existing = (Object.values(localData.users) as User[]).find(u => u.accountName?.toLowerCase() === lowerName);
     if (existing) return { error: "ID 已被占用" };
 
     const email = this.getEmail(accountName);
@@ -117,7 +157,7 @@ class HybridDBService {
         const uid = userCredential.user.uid;
         const newUser = this.createNewUserObject(uid, accountName, username, password || "123456");
         this.saveToLocal('users', uid, newUser);
-        const { password: _, ...dbUser } = newUser;
+        const { password: _, ...dbUser } = this.sanitizeForFirebase(newUser);
         await db.collection("users").doc(uid).set(dbUser);
         return { user: newUser };
       }
@@ -130,7 +170,7 @@ class HybridDBService {
   }
 
   private createNewUserObject(id: string, accountName: string, username: string, password?: string, avatarUrl?: string): User {
-    const isRoot = accountName === 'admin';
+    const isRoot = accountName === 'admin' || id === KEFU_ID;
     return {
       id, accountName, username, password,
       avatar: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${accountName}`,
@@ -149,47 +189,48 @@ class HybridDBService {
   }
 
   async sendPrivateMessage(senderId: string, targetId: string, text: string, img?: string, opt?: any): Promise<Message> {
+    if (!targetId) throw new Error("Missing targetId");
+    
     const participants = [senderId, targetId].sort();
     const conversationId = participants.join(':');
     
-    // Firestore fix: Ensure no undefined fields are passed
     const msg: any = {
       id: `m_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       conversationId,
       senderId,
       senderName: opt?.senderName || 'Anonymous',
       text,
-      type: opt?.type || 'text',
-      timestamp: Date.now(),
+      type: opt?.type || (img ? 'image' : 'text'),
+      timestamp: Date.now()
     };
-    
+
     if (img) msg.imageContent = img;
     if (opt?.tradeId) msg.tradeId = opt.tradeId;
 
     try {
-        // 1. 本地保存
         this.saveToLocal('messages', msg.id, msg);
-        
         const localData = this.getLocalData();
-        const existingConv = localData.conversations?.[conversationId];
+        const existingConv = localData.conversations[conversationId] as Conversation | undefined;
+        const unreadCounts = { ...(existingConv?.unreadCounts || {}) };
+        if (senderId !== targetId) {
+            unreadCounts[targetId] = (unreadCounts[targetId] || 0) + 1;
+        }
         const conv: Conversation = {
             id: conversationId,
             participants,
-            lastMessage: msg,
-            unreadCounts: { ...(existingConv?.unreadCounts || {}), [targetId]: (existingConv?.unreadCounts?.[targetId] || 0) + 1 }
+            lastMessage: msg as Message,
+            unreadCounts
         };
         this.saveToLocal('conversations', conversationId, conv);
 
-        // 2. 静默同步 (Firebase)
         if (!this.isLocalOnly && db) {
-            // 使用完全解耦的异步调用
-            setTimeout(() => {
-                db.collection("messages").doc(msg.id).set(msg).catch(() => {});
-                db.collection("conversations").doc(conversationId).set(conv, { merge: true }).catch(() => {});
-            }, 0);
+            const firebaseMsg = this.sanitizeForFirebase(msg);
+            const firebaseConv = this.sanitizeForFirebase(conv);
+            db.collection("messages").doc(msg.id).set(firebaseMsg).catch(() => {});
+            db.collection("conversations").doc(conversationId).set(firebaseConv, { merge: true }).catch(() => {});
         }
     } catch (e) {
-        console.error("Critical Send Error:", e);
+        throw e;
     }
 
     return msg as Message;
@@ -197,7 +238,7 @@ class HybridDBService {
 
   async getPrivateMessages(conversationId: string): Promise<Message[]> {
     const localData = this.getLocalData();
-    const localMsgs = Object.values(localData.messages || {}) as Message[];
+    const localMsgs = Object.values(localData.messages) as Message[];
     const filtered = localMsgs.filter(m => m.conversationId === conversationId);
 
     if (!this.isLocalOnly && db) {
@@ -217,7 +258,7 @@ class HybridDBService {
 
   async getConversations(userId: string): Promise<Conversation[]> {
     const localData = this.getLocalData();
-    const localConvs = Object.values(localData.conversations || {}) as Conversation[];
+    const localConvs = Object.values(localData.conversations) as Conversation[];
     const filtered = localConvs.filter(c => c.participants.includes(userId));
 
     if (!this.isLocalOnly && db) {
@@ -227,24 +268,26 @@ class HybridDBService {
         const map = new Map();
         filtered.forEach(c => map.set(c.id, c));
         remoteConvs.forEach(c => map.set(c.id, c));
-        return Array.from(map.values());
+        return Array.from(map.values()).sort((a, b) => (b.lastMessage?.timestamp || 0) - (a.lastMessage?.timestamp || 0));
       } catch (e) {
-        return filtered;
+        return filtered.sort((a, b) => (b.lastMessage?.timestamp || 0) - (a.lastMessage?.timestamp || 0));
       }
     }
-    return filtered;
+    return filtered.sort((a, b) => (b.lastMessage?.timestamp || 0) - (a.lastMessage?.timestamp || 0));
   }
 
   async markConversationAsRead(userId: string, conversationId: string) {
     const localData = this.getLocalData();
     if (localData.conversations?.[conversationId]) {
-        localData.conversations[conversationId].unreadCounts[userId] = 0;
-        this.saveToLocal('conversations', conversationId, localData.conversations[conversationId]);
-    }
-    if (!this.isLocalOnly && db) {
-        db.collection("conversations").doc(conversationId).set({ 
-            unreadCounts: { [userId]: 0 } 
-        }, { merge: true }).catch(() => {});
+        const conv = { ...localData.conversations[conversationId] };
+        conv.unreadCounts = { ...(conv.unreadCounts || {}), [userId]: 0 };
+        this.saveToLocal('conversations', conversationId, conv);
+        
+        if (!this.isLocalOnly && db) {
+            db.collection("conversations").doc(conversationId).set({ 
+                unreadCounts: { [userId]: 0 } 
+            }, { merge: true }).catch(() => {});
+        }
     }
   }
 
@@ -269,19 +312,20 @@ class HybridDBService {
     this.saveToLocal('users', user.id, user);
     if (!this.isLocalOnly && db) {
         const { password: _, ...data } = user;
-        db.collection("users").doc(user.id).set(data, { merge: true }).catch(() => {});
+        const firebaseData = this.sanitizeForFirebase(data);
+        db.collection("users").doc(user.id).set(firebaseData, { merge: true }).catch(() => {});
     }
   }
 
   async getAllUsers(): Promise<User[]> {
       const localData = this.getLocalData();
-      return Object.values(localData.users || {}) as User[];
+      return Object.values(localData.users) as User[];
   }
 
   async findUserByAccountName(accountName: string): Promise<User | undefined> {
-      const lower = accountName.toLowerCase();
+      const lower = accountName.trim().toLowerCase();
       const localData = this.getLocalData();
-      const found = (Object.values(localData.users || {}) as User[]).find(u => u.accountName.toLowerCase() === lower);
+      const found = (Object.values(localData.users) as User[]).find(u => u.accountName?.toLowerCase() === lower);
       if (found) return found;
       
       if (!this.isLocalOnly && db) {
@@ -308,7 +352,10 @@ class HybridDBService {
   async createChannel(channel: any): Promise<Channel> {
       const id = 'chan_' + Math.random().toString(36).substr(2, 9);
       const newChan = { ...channel, id, playerCount: 1 };
-      if (!this.isLocalOnly && db) await db.collection("channels").doc(id).set(newChan);
+      if (!this.isLocalOnly && db) {
+          const firebaseChan = this.sanitizeForFirebase(newChan);
+          await db.collection("channels").doc(id).set(firebaseChan);
+      }
       return newChan;
   }
 
@@ -323,7 +370,6 @@ class HybridDBService {
   }
 
   async sendChannelMessage(channelId: string, user: User, text: string, imageContent?: string) {
-      // Firestore fix: Ensure imageContent is not undefined
       const msg: any = { 
         id: 'cmsg_' + Date.now(), 
         channelId, 
@@ -333,15 +379,20 @@ class HybridDBService {
         timestamp: Date.now() 
       };
       if (imageContent) msg.imageContent = imageContent;
-
-      if (!this.isLocalOnly && db) db.collection("channel_messages").doc(msg.id).set(msg).catch(() => {});
+      if (!this.isLocalOnly && db) {
+          const firebaseMsg = this.sanitizeForFirebase(msg);
+          db.collection("channel_messages").doc(msg.id).set(firebaseMsg).catch(() => {});
+      }
   }
 
   async publishBazaarPost(userId: string, channelId: string, content: string) {
       const user = await this.getUser(userId);
       if (!user) return { success: false };
       const post: BazaarPost = { id: `post_${userId}`, userId, username: user.username, userAvatar: user.avatar, content, channelId, position: user.position, timestamp: Date.now() };
-      if (!this.isLocalOnly && db) db.collection("posts").doc(post.id).set(post).catch(() => {});
+      if (!this.isLocalOnly && db) {
+          const firebasePost = this.sanitizeForFirebase(post);
+          db.collection("posts").doc(post.id).set(firebasePost).catch(() => {});
+      }
       return { success: true, user };
   }
 
@@ -367,9 +418,13 @@ class HybridDBService {
 
   async getUsersByIds(ids: string[]): Promise<User[]> {
       const res: User[] = [];
+      const localData = this.getLocalData();
       for (const id of ids) {
-          const u = await this.getUser(id);
-          if (u) res.push(u);
+          if (localData.users[id]) res.push(localData.users[id]);
+          else {
+              const u = await this.getUser(id);
+              if (u) res.push(u);
+          }
       }
       return res;
   }
@@ -456,37 +511,36 @@ class HybridDBService {
 
   async deleteBazaarPost(id: string) { if (!this.isLocalOnly && db) db.collection("posts").doc(id).delete().catch(() => {}); }
   
-  // Fix: Added deleteConversation method to handle conversation deletion in both local storage and database.
   async deleteConversation(cid: string) {
     const all = this.getLocalData();
-    if (all.conversations && all.conversations[cid]) {
-      delete all.conversations[cid];
-      if (this.memoryCache) {
-        this.memoryCache = all;
-      } else {
-        try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all)); } catch (e) {}
-      }
-    }
+    delete all.conversations[cid];
+    Object.keys(all.messages).forEach(mid => {
+      if (all.messages[mid].conversationId === cid) delete all.messages[mid];
+    });
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all));
+    this.memoryCache = all;
+
     if (!this.isLocalOnly && db) {
       db.collection("conversations").doc(cid).delete().catch(() => {});
     }
   }
 
-  // Fix: Added clearConversationMessages to handle clearing all messages in a conversation.
   async clearConversationMessages(convId: string) {
     const all = this.getLocalData();
-    if (all.messages) {
-      let changed = false;
-      Object.keys(all.messages).forEach(mid => {
-        if (all.messages[mid].conversationId === convId) {
-          delete all.messages[mid];
-          changed = true;
-        }
-      });
-      if (changed) {
-        if (this.memoryCache) { this.memoryCache = all; } 
-        else { try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all)); } catch (e) {} }
+    let changed = false;
+    Object.keys(all.messages).forEach(mid => {
+      if (all.messages[mid].conversationId === convId) {
+        delete all.messages[mid];
+        changed = true;
       }
+    });
+    if (all.conversations[convId]) {
+      all.conversations[convId].lastMessage = null;
+      changed = true;
+    }
+    if (changed) {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all));
+      this.memoryCache = all;
     }
     if (!this.isLocalOnly && db) {
       try {
@@ -496,13 +550,12 @@ class HybridDBService {
     }
   }
 
-  // Fix: Added deleteMessage to handle single message deletion.
   async deleteMessage(msgId: string, convId: string) {
     const all = this.getLocalData();
-    if (all.messages && all.messages[msgId]) {
+    if (all.messages[msgId]) {
       delete all.messages[msgId];
-      if (this.memoryCache) { this.memoryCache = all; } 
-      else { try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all)); } catch (e) {} }
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all));
+      this.memoryCache = all;
     }
     if (!this.isLocalOnly && db) {
       db.collection("messages").doc(msgId).delete().catch(() => {});
@@ -521,7 +574,13 @@ class HybridDBService {
   
   async updateChannelBroadcast(cid: string, msg: string) { if (!this.isLocalOnly && db) db.collection("channels").doc(cid).update({ broadcastMessage: msg }).catch(() => {}); }
   
-  async deleteUser(uid: string) { if (!this.isLocalOnly && db) db.collection("users").doc(uid).delete().catch(() => {}); }
+  async deleteUser(uid: string) {
+    const all = this.getLocalData();
+    delete all.users[uid];
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(all));
+    this.memoryCache = all;
+    if (!this.isLocalOnly && db) db.collection("users").doc(uid).delete().catch(() => {});
+  }
   
   async updateUserCredits(uid: string, c: number) { 
       const u = await this.getUser(uid);

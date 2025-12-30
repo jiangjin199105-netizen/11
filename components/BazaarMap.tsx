@@ -30,18 +30,15 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalFileInputRef = useRef<HTMLInputElement>(null);
 
-  // 终端与名录状态
   const [isTerminalOpen, setIsTerminalOpen] = useState(true);
   const [isStallListOpen, setIsStallListOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
-  // 优化后的初始位置：靠左
   const [terminalPos, setTerminalPos] = useState({ 
     x: window.innerWidth < 768 ? 10 : 20, 
     y: window.innerWidth < 768 ? 100 : 150 
   });
   
-  // 优化后的初始大小：手机端更窄更高，适应垂直操作
   const [terminalSize, setTerminalSize] = useState({ 
     w: window.innerWidth < 768 ? Math.min(window.innerWidth - 20, 300) : 320, 
     h: window.innerWidth < 768 ? 320 : 260 
@@ -66,8 +63,14 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
     };
   }, [activeChannel.id]);
 
+  // 终端触底逻辑
   useEffect(() => {
-    if (isTerminalOpen) terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isTerminalOpen) {
+        const timer = setTimeout(() => {
+            terminalEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+        }, 100);
+        return () => clearTimeout(timer);
+    }
   }, [chatMessages, isTerminalOpen]);
 
   const loadData = async () => {
@@ -141,7 +144,6 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
       toast.info("摊位已下线");
   };
 
-  // 改进拖拽逻辑：支持鼠标和触摸
   const startDragging = (e: React.MouseEvent | React.TouchEvent) => {
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -393,10 +395,10 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                 top: `${terminalPos.y}px`, 
                 width: `${terminalSize.w}px`, 
                 height: `${terminalSize.h}px`,
-                touchAction: 'none' // 防止触摸滚动干扰拖拽
+                touchAction: 'none'
               }}
             >
-                 {/* Terminal Header - 拖拽区域，增加触摸支持 */}
+                 {/* Terminal Header */}
                  <div 
                     className="p-3 border-b border-cyber-accent/20 bg-cyber-accent/5 flex justify-between items-center cursor-move select-none" 
                     onMouseDown={startDragging}
@@ -414,7 +416,7 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                  </div>
                  
                  {/* Terminal Content */}
-                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar font-mono text-[10px] md:text-[11px] leading-relaxed">
+                 <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar font-mono text-[10px] md:text-[11px] leading-relaxed pb-8">
                     {chatMessages.map(m => (
                         <div key={m.id} className="animate-fade-in group">
                             <div className="flex items-center gap-2 opacity-60">
@@ -427,7 +429,7 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                             </div>
                         </div>
                     ))}
-                    <div ref={terminalEndRef} />
+                    <div ref={terminalEndRef} className="h-2 w-full" />
                  </div>
 
                  {/* Terminal Input */}
@@ -440,7 +442,7 @@ export const BazaarMap: React.FC<BazaarMapProps> = ({ currentUser, activeChannel
                     <button className="text-cyber-accent hover:scale-110 active:scale-95 transition-all p-1"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" /></svg></button>
                  </form>
                  
-                 {/* Resize Handle - 增加触摸支持 */}
+                 {/* Resize Handle */}
                  <div 
                     className="absolute bottom-0 right-0 w-8 h-8 cursor-nwse-resize flex items-end justify-end p-2 group" 
                     onMouseDown={startResizing}

@@ -19,8 +19,9 @@ const LOCKOUT_KEY = 'neon_auth_lockout_v1';
 const REMEMBER_KEY = 'neon_remember_me_v1';
 const MAX_ATTEMPTS = 3;
 const LOCKOUT_DURATION = 60000;
+const KEFU_ID = 'system_kefu_001';
 
-type AppView = 'messages' | 'moments' | 'bazaar' | 'profile' | 'admin' | 'friends';
+type AppView = 'messages' | 'moments' | 'bazaar' | 'profile' | 'admin' | 'friends' | 'support';
 
 const Icons = {
     Chat: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>,
@@ -29,6 +30,7 @@ const Icons = {
     Bazaar: () => <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>,
     User: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
     Admin: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>,
+    Support: () => <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>,
     Dice: () => <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4h16v16H4V4zm4 4h.01M12 12h.01M16 16h.01M16 8h.01M8 16h.01" /></svg>,
 };
 
@@ -75,7 +77,6 @@ export default function App() {
   
   const [lockoutTimeLeft, setLockoutTimeLeft] = useState(0);
 
-  // 加载记住的信息
   useEffect(() => {
     const saved = localStorage.getItem(REMEMBER_KEY);
     if (saved) {
@@ -144,7 +145,6 @@ export default function App() {
                 setLoginError(res.error);
                 toast.error(res.error);
             } else if (res.user) {
-                // 处理记住我
                 if (rememberMe) {
                     localStorage.setItem(REMEMBER_KEY, JSON.stringify({ account: loginAccount, pass: loginPass }));
                 } else {
@@ -189,6 +189,12 @@ export default function App() {
   const handleOpenChat = (targetUserId: string) => {
       setChatTargetId(targetUserId);
       setCurrentView('messages');
+  };
+
+  const handleContactSupport = () => {
+      setChatTargetId(KEFU_ID);
+      setCurrentView('messages');
+      toast.info("正在建立官方客服链路...");
   };
 
   if (!user) {
@@ -249,9 +255,7 @@ export default function App() {
     <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-black text-gray-100 font-sans safe-area-inset">
       <ToastContainer />
       
-      {/* 桌面端侧边栏 / 移动端底部导航 */}
       <nav className="fixed bottom-0 left-0 right-0 h-16 md:h-full md:w-20 md:static bg-cyber-800/90 backdrop-blur-md border-t md:border-t-0 md:border-r border-cyber-700 flex md:flex-col justify-between md:justify-start md:pt-10 items-center z-[100] px-2 md:px-0">
-          {/* 桌面端 Logo 占位 */}
           <div className="hidden md:flex flex-col items-center mb-10">
               <span className="text-cyber-accent font-black text-xs italic tracking-tighter">霓虹</span>
               <span className="text-white font-black text-[10px] uppercase">集市</span>
@@ -265,6 +269,7 @@ export default function App() {
           </div>
           
           <NavButton active={currentView === 'moments'} onClick={() => setCurrentView('moments')} icon={<Icons.Moments />} label="动态" />
+          <NavButton active={false} onClick={handleContactSupport} icon={<Icons.Support />} label="客服" />
           <NavButton active={currentView === 'profile'} onClick={() => setCurrentView('profile')} icon={<Icons.User />} label="档案" />
           
           {(user.isAdmin || user.accountName === 'admin') && (
@@ -272,7 +277,6 @@ export default function App() {
           )}
       </nav>
 
-      {/* 主视图区域 */}
       <main className="flex-1 flex flex-col h-full overflow-hidden pb-16 md:pb-0 relative">
         <div className="absolute inset-0 z-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, #00f0ff 1px, transparent 0)', backgroundSize: '40px 40px' }}></div>
         
@@ -322,7 +326,6 @@ export default function App() {
         </div>
       </main>
 
-      {/* 弹窗组件 */}
       {profileTarget && (
           <UserProfile currentUser={user} targetUser={profileTarget} onClose={() => setProfileTarget(null)} onUpdateCurrentUser={handleUpdateUser} onOpenChat={handleOpenChat} onStartP2PTrade={(tradeId) => setActiveTradeId(tradeId)} />
       )}

@@ -36,6 +36,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
   const [inputText, setInputText] = useState('');
   const [participantsInfo, setParticipantsInfo] = useState<Record<string, User>>({});
   const [isLocalArchiveActive, setIsLocalArchiveActive] = useState(true);
+  const [isSending, setIsSending] = useState(false);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<number | undefined>(undefined);
@@ -43,11 +44,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
   const loadConversations = async () => {
     try {
       const convs = await mockDb.getConversations(currentUser.id);
-      setConversations(convs.sort((a, b) => {
-          const timeA = a.lastMessage?.timestamp || 0;
-          const timeB = b.lastMessage?.timestamp || 0;
-          return timeB - timeA;
-      }));
+      setConversations(convs);
       
       const userIdsToFetch = new Set<string>();
       convs.forEach(c => c.participants.forEach(p => { if (p !== currentUser.id) userIdsToFetch.add(p); }));
@@ -73,7 +70,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
         if (u) setParticipantsInfo(prev => ({ ...prev, [targetId]: u }));
     }
     setActiveConversationId(convId);
-    loadConversations(); 
+    await loadConversations(); 
   };
 
   const loadMessages = async (convId: string) => {
@@ -81,7 +78,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
       const remoteMsgs = await mockDb.getPrivateMessages(convId);
       setMessages(remoteMsgs);
       await mockDb.markConversationAsRead(currentUser.id, convId);
-      loadConversations();
     } catch (e) {
         console.warn("Msg Load Error", e);
     }
@@ -102,26 +98,31 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
       if (window.confirm('警告：确定要清空此信道的所有历史信号吗？（不可撤销）')) {
           await mockDb.clearConversationMessages(activeConversationId);
           setMessages([]);
-          loadConversations();
+          await loadConversations();
           toast.info("历史记录已抹除");
       }
   };
 
   const handleDeleteMessage = async (msgId: string) => {
       if (!activeConversationId) return;
-      setMessages(prev => prev.filter(m => m.id !== msgId));
       await mockDb.deleteMessage(msgId, activeConversationId);
-      loadConversations();
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+      await loadConversations();
   };
 
   const handleSend = async () => {
-    if (!inputText.trim() || !activeConversationId) return;
+    if (!inputText.trim() || !activeConversationId || isSending) return;
     
+    setIsSending(true);
     const parts = activeConversationId.split(':');
-    let targetId = parts.find(p => p !== currentUser.id);
-    if (!targetId && parts.length === 2 && parts[0] === parts[1]) targetId = currentUser.id;
+    let targetId = parts.length === 2 && parts[0] === parts[1] 
+        ? parts[0] 
+        : parts.find(p => p !== currentUser.id);
     
-    if (!targetId) return;
+    if (!targetId) {
+        setIsSending(false);
+        return;
+    }
     
     const textToSend = inputText.trim();
     setInputText(''); 
@@ -142,9 +143,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
             senderName: currentUser.username
         });
         setMessages(prev => prev.map(m => m.id === tempId ? actualMsg : m));
-        loadConversations(); 
+        await loadConversations();
     } catch (e) { 
-        toast.error("存储协议冲突");
+        console.error(e);
+        toast.error("信道传输中断，请重试");
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        setInputText(textToSend);
+    } finally {
+        setIsSending(false);
     }
   };
 
@@ -168,7 +174,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
       return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [activeConversationId]);
 
-  useEffect(() => { if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  // 优化触底逻辑：使用 setTimeout 确保在 DOM 渲染完成后滚动
+  useEffect(() => { 
+    const timer = setTimeout(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [messages]);
 
   return (
     <div className="flex-1 flex h-full bg-cyber-900 overflow-hidden font-mono text-gray-100">
@@ -219,11 +231,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
           </div>
       </aside>
 
-      {/* 聊天区域 */}
-      <section className={`${!activeConversationId ? 'hidden md:flex' : 'flex'} flex-1 flex-col bg-cyber-900 relative`}>
+      {/* 聊天区域 - 核心变更：改为 flex-col 并移除 absolute 定位 */}
+      <section className={`${!activeConversationId ? 'hidden md:flex' : 'flex'} flex-1 flex-col bg-cyber-900 relative h-full`}>
           {activeConversationId ? (
               <>
-                <header className="h-16 border-b border-cyber-700 flex items-center justify-between px-4 md:px-6 bg-cyber-800/80 backdrop-blur-md z-10">
+                <header className="h-16 border-b border-cyber-700 flex items-center justify-between px-4 md:px-6 bg-cyber-800/80 backdrop-blur-md shrink-0 z-10">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setActiveConversationId(null)} className="md:hidden p-2 -ml-2 text-cyber-accent hover:bg-cyber-accent/10 rounded-full">
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
@@ -253,7 +265,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
                     </button>
                 </header>
 
-                <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar pb-24 md:pb-6">
+                {/* 消息区域：自然占据剩余空间 */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar pb-6">
                     {messages.map((msg, idx) => {
                         const isMe = msg.senderId === currentUser.id;
                         const isPrevFromSame = idx > 0 && messages[idx-1].senderId === msg.senderId;
@@ -285,14 +298,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ currentUser, initi
                             </div>
                         )
                     })}
-                    <div ref={chatEndRef} />
+                    {/* 滚动占位符 */}
+                    <div ref={chatEndRef} className="h-4 w-full" />
                 </div>
 
-                <div className="absolute bottom-0 left-0 right-0 p-3 md:p-6 bg-cyber-900/95 backdrop-blur-xl border-t border-cyber-700">
+                {/* 输入区域：现在作为 Flex 容器的子元素，自然排在底部 */}
+                <div className="shrink-0 p-3 md:p-6 bg-cyber-900/95 backdrop-blur-xl border-t border-cyber-700">
                     <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2 max-w-5xl mx-auto items-center">
                         <input value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="输入加密信号..." className="flex-1 bg-cyber-800/80 border border-cyber-700 rounded-xl px-5 py-3 text-sm text-white focus:border-cyber-accent focus:ring-1 focus:ring-cyber-accent outline-none font-mono transition-all" />
-                        <button type="submit" disabled={!inputText.trim()} className={`rounded-xl w-12 h-12 flex items-center justify-center shrink-0 transition-all ${inputText.trim() ? 'bg-cyber-accent text-cyber-900 shadow-[0_0_15px_#00f0ff]' : 'bg-cyber-800 text-gray-600'}`}>
-                            <svg className="w-5 h-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                        <button type="submit" disabled={!inputText.trim() || isSending} className={`rounded-xl w-12 h-12 flex items-center justify-center shrink-0 transition-all ${inputText.trim() && !isSending ? 'bg-cyber-accent text-cyber-900 shadow-[0_0_15px_#00f0ff]' : 'bg-cyber-800 text-gray-600'}`}>
+                            {isSending ? (
+                                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                            ) : (
+                                <svg className="w-5 h-5 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                            )}
                         </button>
                     </form>
                 </div>
